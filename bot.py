@@ -1,7 +1,5 @@
-import io
 import os
 import random
-import aiohttp
 import discord
 from discord.ext import commands
 
@@ -18,17 +16,9 @@ ALLOWED_CHANNEL_IDS = {
     if cid.strip()
 }
 
-# روابط الـ GIF اللي بدك البوت يبعتها (ممكن تحط أكثر من واحد، بيختار عشوائي)
-# مثال: GIF_URLS=https://example.com/1.gif,https://example.com/2.gif
-GIF_URLS = [
-    url.strip()
-    for url in os.environ.get("GIF_URLS", "").split(",")
-    if url.strip()
-]
-
-if not GIF_URLS:
-    # صورة GIF افتراضية لو ما حطيت شي
-    GIF_URLS = ["https://media.tenor.com/2roZ_D0EjhcAAAAC/hello-hi.gif"]
+# مجلد الصور: حط كل ملفات الـ GIF يلي بدك البوت يبعتها جوا مجلد "gifs"
+# بجانب هاد الملف (bot.py) مباشرة. البوت بيختار وحدة عشوائياً كل مرة.
+GIFS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gifs")
 
 # ---------------------------------------------------------------------
 
@@ -37,35 +27,29 @@ intents.message_content = True  # لازم تكون مفعّلة من Developer 
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# جلسة HTTP واحدة نعيد استخدامها لتنزيل الصور (أسرع وأنظف من فتح جلسة كل مرة)
-http_session: aiohttp.ClientSession | None = None
 
-
-async def fetch_gif_bytes(url: str) -> tuple[bytes, str] | None:
-    """ينزّل الصورة من الرابط ويرجع البايتات مع اسم ملف مناسب."""
-    global http_session
-    if http_session is None:
-        http_session = aiohttp.ClientSession()
-
-    try:
-        async with http_session.get(url) as resp:
-            if resp.status != 200:
-                return None
-            data = await resp.read()
-    except aiohttp.ClientError:
+def get_random_gif_path() -> str | None:
+    """يرجع مسار ملف GIF عشوائي من مجلد gifs، أو None لو المجلد فاضي."""
+    if not os.path.isdir(GIFS_DIR):
         return None
 
-    filename = url.split("/")[-1].split("?")[0]
-    if not filename or "." not in filename:
-        filename = "image.gif"
+    files = [
+        f for f in os.listdir(GIFS_DIR)
+        if f.lower().endswith((".gif", ".png", ".jpg", ".jpeg", ".webp"))
+    ]
+    if not files:
+        return None
 
-    return data, filename
+    chosen = random.choice(files)
+    return os.path.join(GIFS_DIR, chosen)
 
 
 @bot.event
 async def on_ready():
     print(f"✅ البوت اشتغل باسم: {bot.user} (ID: {bot.user.id})")
     print(f"📺 الشاتات المسموحة: {ALLOWED_CHANNEL_IDS or 'كل الشاتات (ما تحدد شي)'}")
+    gif_count = len(os.listdir(GIFS_DIR)) if os.path.isdir(GIFS_DIR) else 0
+    print(f"🖼️ عدد ملفات الـ GIF الموجودة بمجلد gifs: {gif_count}")
 
 
 @bot.event
@@ -78,16 +62,12 @@ async def on_message(message: discord.Message):
     if ALLOWED_CHANNEL_IDS and message.channel.id not in ALLOWED_CHANNEL_IDS:
         return
 
-    gif_url = random.choice(GIF_URLS)
-    result = await fetch_gif_bytes(gif_url)
+    gif_path = get_random_gif_path()
 
-    if result is None:
-        # لو صار خطأ بالتنزيل، ابعت الرابط عادي كحل احتياطي
-        await message.channel.send(gif_url)
+    if gif_path is None:
+        print("⚠️ ما في ولا ملف GIF جوا مجلد gifs — تأكد إنك رفعته صح.")
     else:
-        data, filename = result
-        file = discord.File(io.BytesIO(data), filename=filename)
-        await message.channel.send(file=file)
+        await message.channel.send(file=discord.File(gif_path))
 
     # هاد السطر ضروري لو بدك تستخدم أوامر (commands) كمان مستقبلاً
     await bot.process_commands(message)
