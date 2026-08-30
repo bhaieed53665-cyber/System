@@ -1,5 +1,7 @@
+import io
 import os
 import random
+import aiohttp
 import discord
 from discord.ext import commands
 
@@ -35,6 +37,30 @@ intents.message_content = True  # لازم تكون مفعّلة من Developer 
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# جلسة HTTP واحدة نعيد استخدامها لتنزيل الصور (أسرع وأنظف من فتح جلسة كل مرة)
+http_session: aiohttp.ClientSession | None = None
+
+
+async def fetch_gif_bytes(url: str) -> tuple[bytes, str] | None:
+    """ينزّل الصورة من الرابط ويرجع البايتات مع اسم ملف مناسب."""
+    global http_session
+    if http_session is None:
+        http_session = aiohttp.ClientSession()
+
+    try:
+        async with http_session.get(url) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.read()
+    except aiohttp.ClientError:
+        return None
+
+    filename = url.split("/")[-1].split("?")[0]
+    if not filename or "." not in filename:
+        filename = "image.gif"
+
+    return data, filename
+
 
 @bot.event
 async def on_ready():
@@ -52,8 +78,16 @@ async def on_message(message: discord.Message):
     if ALLOWED_CHANNEL_IDS and message.channel.id not in ALLOWED_CHANNEL_IDS:
         return
 
-    gif = random.choice(GIF_URLS)
-    await message.channel.send(gif)
+    gif_url = random.choice(GIF_URLS)
+    result = await fetch_gif_bytes(gif_url)
+
+    if result is None:
+        # لو صار خطأ بالتنزيل، ابعت الرابط عادي كحل احتياطي
+        await message.channel.send(gif_url)
+    else:
+        data, filename = result
+        file = discord.File(io.BytesIO(data), filename=filename)
+        await message.channel.send(file=file)
 
     # هاد السطر ضروري لو بدك تستخدم أوامر (commands) كمان مستقبلاً
     await bot.process_commands(message)
