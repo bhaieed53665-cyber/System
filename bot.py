@@ -79,3 +79,4 @@ if __name__ == "__main__":
             "❌ لازم تحط DISCORD_TOKEN في متغيرات البيئة (Environment Variables)."
         )
     bot.run(DISCORD_TOKEN)
+
